@@ -40,7 +40,7 @@ class DispatchDict:
 
         return ndispatch
 
-    def handle_instance(self, inst):
+    def handle_inst(self, inst):
         if self.dispatch_inst:
             ndispatch = self.dispatch_inst.get(inst, None)
             if ndispatch:
@@ -161,14 +161,32 @@ class Generic:
         raise GenericError("No method found in generic")
 
 
-def generic(warn_on_redefinition=True):
-    def mk_generic(func):
-        if not inspect.isfunction(func):
-            raise ValueError("Generics can only wrap functions.")
-        generic_obj = Generic(func.__name__, func.__doc__, func, warn_on_redefinition)
-        return generic_obj
+# def generic(warn_on_redefinition=True):
+#     def mk_generic(func):
+#         # print("Wrapping the generic function.")
+#         if not inspect.isfunction(func):
+#             raise ValueError("Generics can only wrap functions.")
+#         class GenericMethod(Generic):
+#             def __init__(self, *args):
+#                 super().__init__(*args)
 
-    return mk_generic
+#         GenericMethod.__doc__ = "Generic method:\n{}".format(func.__doc__)
+#         generic_obj = GenericMethod(func.__name__, func.__doc__, func, warn_on_redefinition)
+#         return generic_obj
+
+#     return mk_generic
+
+def generic(func):
+    # print("Wrapping the generic function.")
+    if not inspect.isfunction(func):
+        raise ValueError("Generics can only wrap functions.")
+    class GenericMethod(Generic):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+
+    GenericMethod.__doc__ = "Generic method:\n{}".format(func.__doc__)
+    generic_obj = GenericMethod(func.__name__, func.__doc__, func, warn_on_redefinition=True)
+    return generic_obj
 
 def method(generic):
     #print(generic)
@@ -187,7 +205,7 @@ if __name__ == "__main__":
 
     #import pdb; pdb.set_trace()
 
-    @generic()
+    @generic
     def gen_meth():
         """This is a generic method."""
         print("Generic method gen_meth() is extending")
