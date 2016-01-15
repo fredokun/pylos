@@ -1,41 +1,15 @@
 
-# Some experiments with a CLOS-inspired
-# multi-dispatch mechanism for Python.
 
-#{
+"""This is the implementation
+of the Pylos object system for Python 3.
 
-# A typical CLOS example, solving the Expression problem
+This is a thin extension of the Python object system
+ to support generic functions/methods "a la" Lisp/CLOS
+ (with multi-dispatch and all.).
+"""
 
 import inspect
 import warnings
-import math
-
-class Shape:
-    def perimeter(self):
-        raise NotImplementedError()
-
-class Square:
-    def __init__(self, side):
-        self.side = side
-
-    def perimeter(self):
-        return 4 * self.side
-
-## Add a new kind of figure ?
-## ==> easy
-
-class Arbelos:
-    def __init__(self, a, b):
-        self.a = a
-        self.b = b
-
-    def perimeter(self):
-        return ((math.pi * self.a) / 2.0) \
-            + ((math.pi * self.b) / 2.0) \
-            + ((math.pi * (self.a + self.b)) / 2.0)
-
-## Add a new kind of operation ?
-## ==> difficult
 
 class GenericWarning(UserWarning):
     def __init__(self, msg):
@@ -112,34 +86,37 @@ class DispatchDict:
                                                                                   self.dispatch_func)
 
 class Generic:
-    def __init__(self, doc, warn_on_redefinition=True):
+    def __init__(self, name, doc, gen_func, warn_on_redefinition=True):
+        self.name = name
         self.doc = doc
+        self.gen_func = gen_func
         self.warn_on_redefinition = warn_on_redefinition
 
         self.dispatch = DispatchDict()
 
     def wrap(self, func):
-        if not inspect.isfunction(func):
-            raise ValueError("Generics can only wrap functions.")
+        # call the generic function (pre-hook for debugging)
+        self.gen_func()
+
         sig = inspect.signature(func)
-        print("Signature is: {}".format(sig))
+        #print("Signature is: {}".format(sig))
 
         arity = len(sig.parameters.values())
-        print("Call arity = {}".format(arity))
+        #print("Call arity = {}".format(arity))
         pdispatch = self.dispatch
         for (nth, param) in zip(range(1, arity + 1), sig.parameters.values()):
-            print("Parameter #{}: {}".format(nth, param.name))
-            print("   ==> annot: {}".format(param.annotation))
-            print("   ==> kind: {}".format(param.kind))
+            #print("Parameter #{}: {}".format(nth, param.name))
+            #print("   ==> annot: {}".format(param.annotation))
+            #print("   ==> kind: {}".format(param.kind))
 
             if param.annotation == param.empty:
-                print("      ==> empty annotation")
+                #print("      ==> empty annotation")
                 pdispatch = pdispatch.handle_default()
             elif inspect.isclass(param.annotation):
-                print("      ==> it's a class !")
+                #print("      ==> it's a class !")
                 pdispatch = pdispatch.handle_class(param.annotation)
             else:
-                print("      ==> it's an object")
+                #print("      ==> it's an object")
                 pdispatch = pdispatch.handle_inst(param.annotation)
 
         pdispatch.register_func(sig, func)
@@ -150,17 +127,28 @@ class Generic:
         # import pdb ; pdb.set_trace()
         adispatch = self.dispatch
         for arg in args:
-            tcls = type(arg)
-            ndispatch = adispatch.fetch_class(tcls)
-            if ndispatch:
-                adispatch = ndispatch
+
+            # first try: instance-based dispatch
+            import collections.abc
+            if isinstance(arg, collections.abc.Hashable):
+                ndispatch = adispatch.fetch_inst(arg)
+                if ndispatch:
+                    adispatch = ndispatch
+                    continue
+
+            # second try: class-based dispatch in MRO order
+            class_found = False
+            for tcls in type(arg).__mro__:
+                ndispatch = adispatch.fetch_class(tcls)
+                if ndispatch:
+                    adispatch = ndispatch
+                    class_found = True
+                    continue
+
+            if class_found:
                 continue
 
-            ndispatch = adispatch.fetch_inst(arg)
-            if ndispatch:
-                adispatch = ndispatch
-                continue
-
+            # third try: default dispatch
             ndispatch = adispatch.fetch_default()
             if ndispatch:
                 adispatch = ndispatch
@@ -172,41 +160,62 @@ class Generic:
 
         raise GenericError("No method found in generic")
 
-perimeter = Generic("Compute the perimeter of a shape")
 
-#print("Dispatch 1 = {}".format(perimeter.dispatch))
+def generic(warn_on_redefinition=True):
+    def mk_generic(func):
+        if not inspect.isfunction(func):
+            raise ValueError("Generics can only wrap functions.")
+        generic_obj = Generic(func.__name__, func.__doc__, func, warn_on_redefinition)
+        return generic_obj
+
+    return mk_generic
 
 def method(generic):
     #print(generic)
     return generic.wrap
 
-@method(perimeter)
-def perimeter_for_square(self):
-    return self.side * 4
-
-#print("Dispatch 2 = {}".format(perimeter.dispatch))
-
-
-@method(perimeter)
-def perimeter_for_arbelos(self: Arbelos):
-    return ((math.pi * self.a) / 2.0) \
-            + ((math.pi * self.b) / 2.0) \
-            + ((math.pi * (self.a + self.b)) / 2.0)
-
-
-#print("Dispatch 3 = {}".format(p0erimeter.dispatch))
-
-
-#}
-
-
 if __name__ == "__main__":
-    sq = Square(3)
-    print("Perimeter = {}".format(sq.perimeter()))
-    arb = Arbelos(3, 4)
-    print("Perimeter = {}".format(arb.perimeter()))
+
+    class A:
+        pass
+
+    class B:
+        pass
+
+    class C:
+        pass
+
+    #import pdb; pdb.set_trace()
+
+    @generic()
+    def gen_meth():
+        """This is a generic method."""
+        print("Generic method gen_meth() is extending")
+
+    @method(gen_meth)
+    def _(a : A):
+        print("Call for class A")
+
+    @method(gen_meth)
+    def _(b : B):
+        print("Call for class B")
+
+    a = A()
+    b = B()
+
+    gen_meth(a)
+    gen_meth(b)
+
+    c = C()
+    try:
+        gen_meth(c)
+        raise Error("Should not be here ...")
+    except GenericError:
+        print("Failed call for class C (as expected)")
 
 
-    print("Perimeter = {}".format(perimeter(sq)))
-    print("Perimeter = {}".format(perimeter(arb)))
+    print("----")
+    print("Enjoy Pylos !")
+
+
 
